@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { logger } from './utils/logger.util';
+
 import { RectangleEntity } from './entities/rectangle.entity';
 import { SphereEntity } from './entities/sphere.entity';
 
@@ -28,38 +29,37 @@ import { SphereVolumeRangeSpecification } from './specifications/sphere/sphere-v
 
 import { IdComparator } from './comparators/id.comparator';
 
+
+const warehouse = Warehouse.getInstance();
+
 const pointService = new PointService();
 const point3DService = new Point3DService();
 
-const rectangleResultValidator = new RectangleResultValidator();
-const sphereResultValidator = new SphereResultValidator();
+const rectangleService = new RectangleService(pointService, new RectangleResultValidator());
+const sphereService = new SphereService(point3DService, new SphereResultValidator());
 
-const warehouse = Warehouse.getInstance();
+rectangleService.attach(new RectangleObserver(rectangleService, warehouse));
+sphereService.attach(new SphereObserver(sphereService, warehouse));
 
 const rectangleRepo = new ShapeRepository<RectangleEntity>();
 const sphereRepo = new ShapeRepository<SphereEntity>();
 
 
-function readRectangles(pathStr: string, service: RectangleService): RectangleEntity[] {
+function readRectangles(pathStr: string): RectangleEntity[] {
   const fullPath = path.resolve(process.cwd(), pathStr);
   const factory = new ShapeFactory();
-
   const result: RectangleEntity[] = [];
 
   try {
     const lines = fs.readFileSync(fullPath, 'utf-8').split('\n');
-
     lines.forEach((line, i) => {
       if (!line.trim()) return;
-
       try {
         const rect = factory.createRectangleFromLine(line);
-
-        if (!service.isValid(rect)) {
-          logger.warn(`Rectangle line ${i + 1}: invalid geometry`);
+        if (!rectangleService.isValid(rect)) {
+          logger.warn(`Rectangle line ${i + 1} invalid`);
           return;
         }
-
         result.push(rect);
       } catch (err) {
         logger.error(`Rectangle line ${i + 1} skipped: ${(err as Error).message}`);
@@ -72,28 +72,22 @@ function readRectangles(pathStr: string, service: RectangleService): RectangleEn
   return result;
 }
 
-
-function readSpheres(pathStr: string, service: SphereService): SphereEntity[] {
+function readSpheres(pathStr: string): SphereEntity[] {
   const fullPath = path.resolve(process.cwd(), pathStr);
   const factory = new SphereFactory();
-
   const result: SphereEntity[] = [];
 
   try {
     const lines = fs.readFileSync(fullPath, 'utf-8').split('\n');
-
     lines.forEach((line, i) => {
       if (!line.trim()) return;
-
       try {
-        const sphere = factory.createFromLine(line);
-
-        if (!service.isValid(sphere)) {
-          logger.warn(`Sphere line ${i + 1}: invalid geometry`);
+        const s = factory.createFromLine(line);
+        if (!sphereService.isValid(s)) {
+          logger.warn(`Sphere line ${i + 1} invalid`);
           return;
         }
-
-        result.push(sphere);
+        result.push(s);
       } catch (err) {
         logger.error(`Sphere line ${i + 1} skipped: ${(err as Error).message}`);
       }
@@ -106,74 +100,98 @@ function readSpheres(pathStr: string, service: SphereService): SphereEntity[] {
 }
 
 
-function logRectangles(rectangles: RectangleEntity[], service: RectangleService) {
-  rectangles.forEach((r) => {
+function logRectangles(rects: RectangleEntity[]) {
+  rects.forEach((r) => {
     logger.info(`Rectangle ${r.id}`);
-    logger.info(`  Area: ${service.getArea(r)}`);
-    logger.info(`  Perimeter: ${service.getPerimeter(r)}`);
-    logger.info(`  Square: ${service.isSquare(r)}`);
-    logger.info(`  Rhombus: ${service.isRhombus(r)}`);
-    logger.info(`  Trapezoid: ${service.isTrapezoid(r)}`);
-    logger.info(`  Convex: ${service.isConvex(r)}`);
+    logger.info(`  Area: ${rectangleService.getArea(r)}`);
+    logger.info(`  Perimeter: ${rectangleService.getPerimeter(r)}`);
+    logger.info(`  Square: ${rectangleService.isSquare(r)}`);
+    logger.info(`  Rhombus: ${rectangleService.isRhombus(r)}`);
+    logger.info(`  Trapezoid: ${rectangleService.isTrapezoid(r)}`);
+    logger.info(`  Convex: ${rectangleService.isConvex(r)}`);
   });
 }
 
-function logSpheres(spheres: SphereEntity[], service: SphereService) {
+function logSpheres(spheres: SphereEntity[]) {
   spheres.forEach((s) => {
     logger.info(`Sphere ${s.id}`);
-    logger.info(`  Surface area: ${service.getSurfaceArea(s)}`);
-    logger.info(`  Volume: ${service.getVolume(s)}`);
+    logger.info(`  Surface area: ${sphereService.getSurfaceArea(s)}`);
+    logger.info(`  Volume: ${sphereService.getVolume(s)}`);
   });
 }
-
 
 function main(): void {
   try {
-    const rectangleService = new RectangleService(pointService, rectangleResultValidator);
-    const sphereService = new SphereService(point3DService, sphereResultValidator);
 
-    rectangleService.attach(new RectangleObserver(rectangleService, warehouse));
-    sphereService.attach(new SphereObserver(sphereService, warehouse));
+    const rectangles = readRectangles('data/rectangles.txt');
+    const spheres = readSpheres('data/spheres.txt');
 
-    const rectangles = readRectangles('data/rectangles.txt', rectangleService);
-    const spheres = readSpheres('data/spheres.txt', sphereService);
+    rectangles.forEach(r => rectangleRepo.add(r));
+    spheres.forEach(s => sphereRepo.add(s));
 
-    rectangles.forEach((r) => rectangleRepo.add(r));
-    spheres.forEach((s) => sphereRepo.add(s));
+    logger.info('--- Initial Rectangles ---');
+    logRectangles(rectangles);
 
-    logger.info('--- Rectangles ---');
-    logRectangles(rectangles, rectangleService);
+    logger.info('--- Initial Spheres ---');
+    logSpheres(spheres);
 
-    logger.info('--- Spheres ---');
-    logSpheres(spheres, sphereService);
+    logger.info('--- Initial Warehouse Sync (Observer via update calls) ---');
+
+    rectangles.forEach(r =>
+      rectangleService.updatePoints(r, [...r.points])
+    );
+
+    spheres.forEach(s => {
+      sphereService.updateRadius(s, s.radius);
+      sphereService.updateCenter(s, s.center.x, s.center.y, s.center.z);
+    });
+
+    logger.info('Warehouse successfully initialized');
+
 
     logger.info('--- Specification Search Demo ---');
 
-    const areaRange = new RectangleAreaRangeSpecification(10, 100, warehouse);
+    const areaSpec = new RectangleAreaRangeSpecification(10, 100, warehouse);
+    const rectFound = rectangleRepo.findMany(areaSpec);
+    logger.info(`Rectangles with area 10..100: ${rectFound.length}`);
 
-    const rectanglesInRange = rectangleRepo.findMany(areaRange);
-    logger.info(`Rectangles with area in 10..100: ${rectanglesInRange.length}`);
+    const volumeSpec = new SphereVolumeRangeSpecification(100, 5000, warehouse);
+    const sphFound = sphereRepo.findMany(volumeSpec);
+    logger.info(`Spheres with volume 100..5000: ${sphFound.length}`);
 
-    const largeSpheres = sphereRepo.findMany(new SphereVolumeRangeSpecification(100, 5000, warehouse));
-    logger.info(`Spheres with volume in 100..5000: ${largeSpheres.length}`);
 
     logger.info('--- Sorting Demo ---');
     const sortedById = rectangleRepo.sort(new IdComparator());
     logger.info(`Rectangle order by ID: ${sortedById.map(r => r.id).join(', ')}`);
 
-    logger.info('--- Warehouse Observer Demo ---');
+
+    logger.info('--- Observer Flow Demo ---');
 
     if (rectangles.length > 0) {
-      const r1 = rectangles[0];
+      const r = rectangles[0];
 
-      rectangleService.updatePoints(r1, [
-        r1.points[0],
-        r1.points[1],
-        { ...r1.points[1], y: r1.points[1].y + 5 },
-        r1.points[3],
-      ]);
+      logger.info(`Old area: ${warehouse.getArea(r.id)}`);
 
-      logger.info(`Updated area in warehouse: ${warehouse.getArea(r1.id)}`);
+      const updatedPoints = [
+        r.points[0],
+        { ...r.points[1], x: r.points[1].x + 3 },
+        r.points[2],
+        r.points[3]
+      ];
+
+      rectangleService.updatePoints(r, updatedPoints);
+
+      logger.info(`New area after update: ${warehouse.getArea(r.id)}`);
+    }
+
+    if (spheres.length > 0) {
+      const s = spheres[0];
+
+      logger.info(`Old volume: ${warehouse.getVolume(s.id)}`);
+
+      sphereService.updateRadius(s, s.radius + 2);
+
+      logger.info(`New volume after update: ${warehouse.getVolume(s.id)}`);
     }
 
   } catch (err) {

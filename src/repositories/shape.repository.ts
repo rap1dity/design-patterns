@@ -20,9 +20,11 @@ export class ShapeRepository<T extends ShapeEntity> {
 
   getById(id: string): T {
     const entity = this.items.get(id);
+
     if (!entity) {
       throw new NotFoundException(`Entity with id=${id} was not found`);
     }
+
     return entity;
   }
 
@@ -36,36 +38,43 @@ export class ShapeRepository<T extends ShapeEntity> {
         return item;
       }
     }
+
     return undefined;
   }
 
   getOne(spec: Specification<T>): T {
     const found = this.findOne(spec);
+
     if (!found) {
       throw new NotFoundException(
         `No entity satisfies specification ${spec.constructor.name}`,
       );
     }
+
     return found;
   }
 
   findMany(spec: Specification<T>): T[] {
     const result: T[] = [];
+
     for (const item of this.items.values()) {
       if (spec.isSatisfiedBy(item)) {
         result.push(item);
       }
     }
+
     return result;
   }
 
   getMany(spec: Specification<T>): T[] {
     const result = this.findMany(spec);
+
     if (result.length === 0) {
       throw new NotFoundException(
         `No entities found for specification ${spec.constructor.name}`,
       );
     }
+
     return result;
   }
 

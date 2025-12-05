@@ -1,6 +1,6 @@
 export class PointEntity {
   constructor(
-    readonly x: number,
-    readonly y: number,
+    public x: number,
+    public y: number,
   ) {}
 }

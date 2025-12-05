@@ -1,12 +1,43 @@
 import { SphereEntity } from '../entities/sphere.entity';
 import { SphereResultValidator } from '../validators/sphere/sphere-result.validator';
 import { Point3DService } from './point3d.service';
+import { ShapeObserver } from '../warehouse/interfaces/shape-observer.interface';
 
 export class SphereService {
+  private observers: ShapeObserver<SphereEntity>[] = [];
+
   constructor(
     private readonly pointService: Point3DService,
     private readonly resultValidator: SphereResultValidator
   ) {}
+
+  attach(observer: ShapeObserver<SphereEntity>): void {
+    this.observers.push(observer);
+  }
+
+  private notify(sphere: SphereEntity): void {
+    for (const observer of this.observers) {
+      observer.onShapeChanged(sphere);
+    }
+  }
+
+  updateCenter(sphere: SphereEntity, x: number, y: number, z: number): SphereEntity {
+    sphere.center.x = x;
+    sphere.center.y = y;
+    sphere.center.z = z;
+
+    this.notify(sphere);
+
+    return sphere;
+  }
+
+  updateRadius(sphere: SphereEntity, r: number): SphereEntity {
+    sphere.radius = r;
+
+    this.notify(sphere);
+
+    return sphere;
+  }
 
 
   isValid(sphere: SphereEntity): boolean {

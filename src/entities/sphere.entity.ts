@@ -1,9 +1,12 @@
 import { Point3DEntity } from './point3d.entity';
+import { ShapeEntity } from './shape.entity';
 
-export class SphereEntity {
+export class SphereEntity extends ShapeEntity {
   constructor(
-    readonly id: string,
-    readonly center: Point3DEntity,
-    readonly radius: number,
-  ) {}
+    id: string,
+    public center: Point3DEntity,
+    public radius: number,
+  ) {
+    super(id, 'sphere');
+  }
 }

@@ -2,12 +2,33 @@ import { RectangleEntity } from '../entities/rectangle.entity';
 import { PointEntity } from '../entities/point.entity';
 import { PointService } from './point.service';
 import { RectangleResultValidator } from '../validators/rectangle/rectangle-result.validator';
+import { ShapeObserver } from '../warehouse/interfaces/shape-observer.interface';
 
 export class RectangleService {
+  private observers: ShapeObserver<RectangleEntity>[] = [];
+
   constructor(
     private readonly pointService: PointService,
     private readonly resultValidator: RectangleResultValidator
   ) {}
+
+  attach(observer: ShapeObserver<RectangleEntity>): void {
+    this.observers.push(observer);
+  }
+
+  private notify(rect: RectangleEntity): void {
+    for (const observer of this.observers) {
+      observer.onShapeChanged(rect);
+    }
+  }
+
+  updatePoints(rect: RectangleEntity, newPoints: PointEntity[]): RectangleEntity {
+    rect.points.splice(0, rect.points.length, ...newPoints);
+
+    this.notify(rect);
+
+    return rect;
+  }
 
   isValid(rectangle: RectangleEntity): boolean {
     const { points } = rectangle;

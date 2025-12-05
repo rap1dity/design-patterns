@@ -4,15 +4,29 @@ import path from 'node:path';
 import { logger } from './utils/logger.util';
 import { RectangleEntity } from './entities/rectangle.entity';
 import { SphereEntity } from './entities/sphere.entity';
+
 import { ShapeFactory } from './factories/shape.factory';
 import { SphereFactory } from './factories/sphere.factory';
+
 import { RectangleService } from './services/rectangle.service';
 import { SphereService } from './services/sphere.service';
+
 import { PointService } from './services/point.service';
 import { Point3DService } from './services/point3d.service';
+
 import { RectangleResultValidator } from './validators/rectangle/rectangle-result.validator';
 import { SphereResultValidator } from './validators/sphere/sphere-result.validator';
 
+import { ShapeRepository } from './repositories/shape.repository';
+
+import { Warehouse } from './warehouse';
+import { RectangleObserver } from './warehouse/observers/rectangle.observer';
+import { SphereObserver } from './warehouse/observers/sphere.observer';
+
+import { RectangleAreaRangeSpecification } from './specifications/rectangle/rectangle-area-range.specification';
+import { SphereVolumeRangeSpecification } from './specifications/sphere/sphere-volume-range.specification';
+
+import { IdComparator } from './comparators/id.comparator';
 
 const pointService = new PointService();
 const point3DService = new Point3DService();
@@ -20,117 +34,95 @@ const point3DService = new Point3DService();
 const rectangleResultValidator = new RectangleResultValidator();
 const sphereResultValidator = new SphereResultValidator();
 
+const warehouse = Warehouse.getInstance();
 
-function readRectangles(
-  relativePath: string,
-  rectangleService: RectangleService,
-): RectangleEntity[] {
-  const fullPath = path.resolve(process.cwd(), relativePath);
+const rectangleRepo = new ShapeRepository<RectangleEntity>();
+const sphereRepo = new ShapeRepository<SphereEntity>();
 
-  const rectangles: RectangleEntity[] = [];
-  const shapeFactory = new ShapeFactory();
+
+function readRectangles(pathStr: string, service: RectangleService): RectangleEntity[] {
+  const fullPath = path.resolve(process.cwd(), pathStr);
+  const factory = new ShapeFactory();
+
+  const result: RectangleEntity[] = [];
 
   try {
-    const content = fs.readFileSync(fullPath, 'utf-8');
-    const lines = content.split('\n');
+    const lines = fs.readFileSync(fullPath, 'utf-8').split('\n');
 
-    lines.forEach((line, index) => {
-      if (!line.trim()) {
-        return;
-      }
+    lines.forEach((line, i) => {
+      if (!line.trim()) return;
 
       try {
-        const rectangle = shapeFactory.createRectangleFromLine(line);
+        const rect = factory.createRectangleFromLine(line);
 
-        if (!rectangleService.isValid(rectangle)) {
-          logger.warn(`Rectangle line ${index + 1}: invalid geometry`);
+        if (!service.isValid(rect)) {
+          logger.warn(`Rectangle line ${i + 1}: invalid geometry`);
           return;
         }
 
-        rectangles.push(rectangle);
-      } catch (error: unknown) {
-        logger.error(`Rectangle line ${index + 1} skipped: ${(error as Error).message}`);
+        result.push(rect);
+      } catch (err) {
+        logger.error(`Rectangle line ${i + 1} skipped: ${(err as Error).message}`);
       }
     });
-  } catch (error: unknown) {
-    logger.error(`Failed to read rectangles file: ${(error as Error).message}`);
+  } catch (err) {
+    logger.error(`Failed to read rectangles file: ${(err as Error).message}`);
   }
 
-  return rectangles;
+  return result;
 }
 
 
-function readSpheres(
-  relativePath: string,
-  sphereService: SphereService,
-): SphereEntity[] {
-  const fullPath = path.resolve(process.cwd(), relativePath);
+function readSpheres(pathStr: string, service: SphereService): SphereEntity[] {
+  const fullPath = path.resolve(process.cwd(), pathStr);
+  const factory = new SphereFactory();
 
-  const spheres: SphereEntity[] = [];
-  const sphereFactory = new SphereFactory();
+  const result: SphereEntity[] = [];
 
   try {
-    const content = fs.readFileSync(fullPath, 'utf-8');
-    const lines = content.split('\n');
+    const lines = fs.readFileSync(fullPath, 'utf-8').split('\n');
 
-    lines.forEach((line, index) => {
-      if (!line.trim()) {
-        return;
-      }
+    lines.forEach((line, i) => {
+      if (!line.trim()) return;
 
       try {
-        const sphere = sphereFactory.createFromLine(line);
+        const sphere = factory.createFromLine(line);
 
-        if (!sphereService.isValid(sphere)) {
-          logger.warn(`Sphere line ${index + 1}: invalid geometry`);
+        if (!service.isValid(sphere)) {
+          logger.warn(`Sphere line ${i + 1}: invalid geometry`);
           return;
         }
 
-        spheres.push(sphere);
-      } catch (error: unknown) {
-        logger.error(`Sphere line ${index + 1} skipped: ${(error as Error).message}`);
+        result.push(sphere);
+      } catch (err) {
+        logger.error(`Sphere line ${i + 1} skipped: ${(err as Error).message}`);
       }
     });
-  } catch (error: unknown) {
-    logger.error(`Failed to read spheres file: ${(error as Error).message}`);
+  } catch (err) {
+    logger.error(`Failed to read spheres file: ${(err as Error).message}`);
   }
 
-  return spheres;
+  return result;
 }
 
 
-function logRectangles(
-  rectangles: RectangleEntity[],
-  rectangleService: RectangleService,
-): void {
-  rectangles.forEach((rectangle) => {
-    logger.info(`Rectangle ID: ${rectangle.id}`);
-    logger.info(`Area: ${rectangleService.getArea(rectangle)}`);
-    logger.info(`Perimeter: ${rectangleService.getPerimeter(rectangle)}`);
-    logger.info(`Square: ${rectangleService.isSquare(rectangle)}`);
-    logger.info(`Rhombus: ${rectangleService.isRhombus(rectangle)}`);
-    logger.info(`Trapezoid: ${rectangleService.isTrapezoid(rectangle)}`);
-    logger.info(`Convex: ${rectangleService.isConvex(rectangle)}`);
-    logger.info(
-      `Intersects only one axis (distance 0): ${rectangleService.intersectsOnlyOneAxis(rectangle, 0)}`,
-    );
+function logRectangles(rectangles: RectangleEntity[], service: RectangleService) {
+  rectangles.forEach((r) => {
+    logger.info(`Rectangle ${r.id}`);
+    logger.info(`  Area: ${service.getArea(r)}`);
+    logger.info(`  Perimeter: ${service.getPerimeter(r)}`);
+    logger.info(`  Square: ${service.isSquare(r)}`);
+    logger.info(`  Rhombus: ${service.isRhombus(r)}`);
+    logger.info(`  Trapezoid: ${service.isTrapezoid(r)}`);
+    logger.info(`  Convex: ${service.isConvex(r)}`);
   });
 }
 
-
-function logSpheres(
-  spheres: SphereEntity[],
-  sphereService: SphereService,
-): void {
-  spheres.forEach((sphere) => {
-    logger.info(`Sphere ID: ${sphere.id}`);
-    logger.info(`Surface area: ${sphereService.getSurfaceArea(sphere)}`);
-    logger.info(`Volume: ${sphereService.getVolume(sphere)}`);
-
-    const ratio = sphereService.volumeRatioByPlaneXY(sphere);
-
-    logger.info(`Volume ratio (XY plane): positive=${ratio.positive}, negative=${ratio.negative}`);
-    logger.info(`Touches any coordinate plane: ${sphereService.touchesAnyCoordinatePlane(sphere)}`);
+function logSpheres(spheres: SphereEntity[], service: SphereService) {
+  spheres.forEach((s) => {
+    logger.info(`Sphere ${s.id}`);
+    logger.info(`  Surface area: ${service.getSurfaceArea(s)}`);
+    logger.info(`  Volume: ${service.getVolume(s)}`);
   });
 }
 
@@ -140,16 +132,52 @@ function main(): void {
     const rectangleService = new RectangleService(pointService, rectangleResultValidator);
     const sphereService = new SphereService(point3DService, sphereResultValidator);
 
-    logger.info('--- Processing Rectangles ---');
+    rectangleService.attach(new RectangleObserver(rectangleService, warehouse));
+    sphereService.attach(new SphereObserver(sphereService, warehouse));
+
     const rectangles = readRectangles('data/rectangles.txt', rectangleService);
+    const spheres = readSpheres('data/spheres.txt', sphereService);
+
+    rectangles.forEach((r) => rectangleRepo.add(r));
+    spheres.forEach((s) => sphereRepo.add(s));
+
+    logger.info('--- Rectangles ---');
     logRectangles(rectangles, rectangleService);
 
-    logger.info('--- Processing Spheres ---');
-    const spheres = readSpheres('data/spheres.txt', sphereService);
+    logger.info('--- Spheres ---');
     logSpheres(spheres, sphereService);
 
-  } catch (error: unknown) {
-    logger.fatal(`Fatal error: ${(error as Error).message}`);
+    logger.info('--- Specification Search Demo ---');
+
+    const areaRange = new RectangleAreaRangeSpecification(10, 100, warehouse);
+
+    const rectanglesInRange = rectangleRepo.findMany(areaRange);
+    logger.info(`Rectangles with area in 10..100: ${rectanglesInRange.length}`);
+
+    const largeSpheres = sphereRepo.findMany(new SphereVolumeRangeSpecification(100, 5000, warehouse));
+    logger.info(`Spheres with volume in 100..5000: ${largeSpheres.length}`);
+
+    logger.info('--- Sorting Demo ---');
+    const sortedById = rectangleRepo.sort(new IdComparator());
+    logger.info(`Rectangle order by ID: ${sortedById.map(r => r.id).join(', ')}`);
+
+    logger.info('--- Warehouse Observer Demo ---');
+
+    if (rectangles.length > 0) {
+      const r1 = rectangles[0];
+
+      rectangleService.updatePoints(r1, [
+        r1.points[0],
+        r1.points[1],
+        { ...r1.points[1], y: r1.points[1].y + 5 },
+        r1.points[3],
+      ]);
+
+      logger.info(`Updated area in warehouse: ${warehouse.getArea(r1.id)}`);
+    }
+
+  } catch (err) {
+    logger.fatal(`Fatal error: ${(err as Error).message}`);
   }
 }
 
